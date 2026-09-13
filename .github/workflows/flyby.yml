@@ -1,0 +1,125 @@
+name: flyby
+
+on:
+  workflow_dispatch:
+    inputs:
+      mass:
+        description: "Black hole mass [Earth masses]"
+        default: "1"
+      particles:
+        description: "SPH particle count"
+        default: "500000"
+      by:
+        description: "Impact parameter [km] (smaller = closer pass)"
+        default: "14000"
+      end:
+        description: "Sim duration [s] (extra duration when resuming)"
+        default: "40000"
+      dt:
+        description: "Seconds of sim time between frames"
+        default: "40"
+      budget_min:
+        description: "Minutes of sim time budget for this chunk"
+        default: "270"
+      resume_run:
+        description: "Run id to resume from (blank = fresh start)"
+        default: ""
+      width:
+        default: "1920"
+      height:
+        default: "1080"
+
+jobs:
+  chunk:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 355
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cmake g++ libwxgtk3.2-dev libtbb-dev xvfb ffmpeg
+
+      - name: Cache OpenSPH build
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: opensph/build
+          key: opensph-build-${{ runner.os }}-${{ hashFiles('bhtool/**') }}-v1
+
+      - name: Build OpenSPH + bhtool
+        run: |
+          if [ ! -d opensph ]; then git clone --depth 1 https://gitlab.com/sevecekp/sph.git opensph; fi
+          cp -r bhtool opensph/cli/bhtool
+          grep -q "cli/bhtool" opensph/CMakeLists.txt || sed -i '/add_subdirectory(cli\/launcher)/a add_subdirectory(cli/bhtool)' opensph/CMakeLists.txt
+          cd opensph && mkdir -p build && cd build
+          cmake -DCMAKE_BUILD_TYPE=Release -DWITH_TBB=ON .. > /dev/null
+          make -j"$(nproc)" bhtool 2>&1 | grep -E "error|Built target bhtool"
+          ls -la cli/bhtool/bhtool
+
+      - name: Earth texture (NASA Blue Marble, public domain)
+        run: |
+          curl -sSL -o earth.jpg "https://eoimages.gsfc.nasa.gov/images/imagerecords/57000/57752/land_shallow_topo_2048.jpg" || true
+          ls -la earth.jpg || echo "no texture"
+
+      - name: Download resume state
+        if: ${{ inputs.resume_run != '' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: resume-m${{ inputs.mass }}
+          path: resume_in
+          run-id: ${{ inputs.resume_run }}
+          github-token: ${{ github.token }}
+
+      - name: Run chunk (sim + inline render)
+        env:
+          BHTOOL: ${{ github.workspace }}/opensph/build/cli/bhtool/bhtool
+          MASS: ${{ inputs.mass }}
+          N: ${{ inputs.particles }}
+          BY: ${{ inputs.by }}
+          END: ${{ inputs.end }}
+          DT: ${{ inputs.dt }}
+          BUDGET_MIN: ${{ inputs.budget_min }}
+          W: ${{ inputs.width }}
+          H: ${{ inputs.height }}
+        run: |
+          if [ -f earth.jpg ]; then export TEXTURE="$PWD/earth.jpg"; fi
+          if [ -d resume_in ]; then export RESUME="$(ls resume_in/*.ssf | head -1)"; fi
+          chmod +x run_chunk.sh && ./run_chunk.sh
+
+      - name: Encode preview mp4
+        run: |
+          ls frames | head -3
+          ffmpeg -v error -y -framerate 30 -pattern_type glob -i 'frames/*.png' -c:v libx264 -crf 18 -pix_fmt yuv420p preview_m${{ inputs.mass }}.mp4 || true
+          ls -la preview_m${{ inputs.mass }}.mp4 || true
+
+      - name: Upload frames
+        uses: actions/upload-artifact@v4
+        with:
+          name: frames-m${{ inputs.mass }}-${{ github.run_id }}
+          path: frames
+          compression-level: 0
+
+      - name: Upload preview
+        uses: actions/upload-artifact@v4
+        with:
+          name: preview-m${{ inputs.mass }}-${{ github.run_id }}
+          path: preview_m${{ inputs.mass }}.mp4
+          if-no-files-found: ignore
+
+      - name: Upload resume state
+        uses: actions/upload-artifact@v4
+        with:
+          name: resume-m${{ inputs.mass }}
+          path: resume
+          if-no-files-found: ignore
+          overwrite: true
+
+      - name: Upload sim log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: log-m${{ inputs.mass }}-${{ github.run_id }}
+          path: sim.log
+          if-no-files-found: ignore
