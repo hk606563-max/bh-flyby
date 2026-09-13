@@ -57,7 +57,11 @@ jobs:
 
       - name: Build OpenSPH + bhtool
         run: |
-          if [ ! -d opensph ]; then git clone --depth 1 https://gitlab.com/sevecekp/sph.git opensph; fi
+          # (the build cache restores opensph/build only, so test for the sources, not the dir)
+          if [ ! -f opensph/CMakeLists.txt ]; then
+            git clone --depth 1 https://gitlab.com/sevecekp/sph.git opensph_src
+            mkdir -p opensph && cp -a opensph_src/. opensph/ && rm -rf opensph_src
+          fi
           cp -r bhtool opensph/cli/bhtool
           grep -q "cli/bhtool" opensph/CMakeLists.txt || sed -i '/add_subdirectory(cli\/launcher)/a add_subdirectory(cli/bhtool)' opensph/CMakeLists.txt
           cd opensph && mkdir -p build && cd build
