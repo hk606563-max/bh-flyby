@@ -9,9 +9,24 @@ MASS=${MASS:-1}; N=${N:-500000}; BY=${BY:-14000}; VINF=${VINF:-8}
 END=${END:-40000}; DT=${DT:-40}; MAXDT=${MAXDT:-10}
 BUDGET_MIN=${BUDGET_MIN:-270}; W=${W:-1920}; H=${H:-1080}; ITERS=${ITERS:-6}
 CAM_Y=${CAM_Y:--70000}; CAM_Z=${CAM_Z:-20000}; TEXTURE=${TEXTURE:-}
+SUN=${SUN:--0.5 1 0.3}; SUN_I=${SUN_I:-1.1}; AMBIENT=${AMBIENT:-0.12}; EMISSION=${EMISSION:-0.8}
+read -r SX SY SZ <<< "$SUN"
 RESUME=${RESUME:-}
 
-args=(sim --n "$N" --mass "$MASS" --by "$BY" --vinf "$VINF" --end "$END" --dt "$DT" --maxdt "$MAXDT" --out "$SIM")
+# When resuming, OpenSPH restarts the clock at 0, so --end acts as *extra* duration.
+# The frame index of the resume file tells us how far we already are (index * DT seconds).
+RUN_END=$END
+if [ -n "$RESUME" ]; then
+  idx=$(basename "$RESUME" .ssf); idx=${idx#bh_}; idx=$((10#$idx))
+  done_s=$(( idx * DT ))
+  RUN_END=$(( END - done_s ))
+  echo "== resume from frame $idx (~${done_s}s done), remaining ${RUN_END}s"
+  if [ "$RUN_END" -le "$DT" ]; then
+    echo "== nothing left to simulate"; echo done > chunk_status.txt; mkdir -p $FRAMES resume; exit 0
+  fi
+fi
+
+args=(sim --n "$N" --mass "$MASS" --by "$BY" --vinf "$VINF" --end "$RUN_END" --dt "$DT" --maxdt "$MAXDT" --out "$SIM")
 [ -n "$TEXTURE" ] && args+=(--texture "$TEXTURE")
 [ -n "$RESUME" ] && args+=(--resume "$RESUME")
 
@@ -24,7 +39,8 @@ render_one() {  # $1 = path to ssf
   local f=$1 idx; idx=$(basename "$f" .ssf); idx=${idx#bh_}
   [ -f "$FRAMES/frame_$idx.png" ] && return 0
   xvfb-run -a "$BHTOOL" render --single "$f" --out "$FRAMES" --mask "frame_$idx.png" \
-      --w "$W" --h "$H" --iters "$ITERS" --cy "$CAM_Y" --cz "$CAM_Z" > /dev/null 2>&1
+      --w "$W" --h "$H" --iters "$ITERS" --cy "$CAM_Y" --cz "$CAM_Z" \
+      --sx "$SX" --sy "$SY" --sz "$SZ" --sun "$SUN_I" --ambient "$AMBIENT" --emission "$EMISSION" > /dev/null 2>&1
 }
 
 while true; do
@@ -37,10 +53,10 @@ while true; do
     done
   fi
   if ! kill -0 $SIMPID 2>/dev/null; then
-    echo "== sim finished"; break
+    echo "== sim finished"; echo done > chunk_status.txt; break
   fi
   if [ $(( ($(date +%s) - START) / 60 )) -ge "$BUDGET_MIN" ]; then
-    echo "== budget reached, stopping sim"; kill $SIMPID; sleep 5; break
+    echo "== budget reached, stopping sim"; echo continue > chunk_status.txt; kill $SIMPID; sleep 5; break
   fi
   sleep 20
 done
@@ -56,6 +72,8 @@ if [ "$cnt" -ge 1 ]; then
   if kill -0 $SIMPID 2>/dev/null; then :; else render_one "$last"; fi
   mkdir -p resume && cp "$last" resume/
   echo "== resume file: $last"
+elif [ -n "$RESUME" ]; then
+  mkdir -p resume && cp "$RESUME" resume/   # no new state this chunk; carry the old one forward
 fi
 tail -3 sim.log
 echo "== frames: $(ls $FRAMES | wc -l)"
