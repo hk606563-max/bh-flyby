@@ -28,6 +28,13 @@ on:
         default: "1920"
       height:
         default: "1080"
+      chain_left:
+        description: "How many more chunks may be auto-launched after this one (0 = never chain)"
+        default: "0"
+
+permissions:
+  actions: write
+  contents: read
 
 jobs:
   chunk:
@@ -61,6 +68,8 @@ jobs:
       - name: Earth texture (NASA Blue Marble, public domain)
         run: |
           curl -sSL -o earth.jpg "https://eoimages.gsfc.nasa.gov/images/imagerecords/57000/57752/land_shallow_topo_2048.jpg" || true
+          # OpenSPH maps texture north to -z; rotate 180deg (hflip+vflip = proper rotation) so north is +z
+          if [ -f earth.jpg ]; then ffmpeg -v error -y -i earth.jpg -vf "hflip,vflip" earth_rot.jpg && mv earth_rot.jpg earth.jpg; fi
           ls -la earth.jpg || echo "no texture"
 
       - name: Download resume state
@@ -115,6 +124,25 @@ jobs:
           path: resume
           if-no-files-found: ignore
           overwrite: true
+
+      - name: Chain next chunk (user-approved, capped by chain_left)
+        if: ${{ success() && inputs.chain_left != '0' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          st=$(cat chunk_status.txt 2>/dev/null || echo none)
+          left=$(( ${{ inputs.chain_left }} - 1 ))
+          echo "chunk status: $st, chunks left after this: $left"
+          if [ "$st" = "continue" ] && [ -d resume ] && [ "$left" -ge 0 ]; then
+            gh workflow run flyby.yml -R "${{ github.repository }}" \
+              -f mass="${{ inputs.mass }}" -f particles="${{ inputs.particles }}" -f by="${{ inputs.by }}" \
+              -f end="${{ inputs.end }}" -f dt="${{ inputs.dt }}" -f budget_min="${{ inputs.budget_min }}" \
+              -f width="${{ inputs.width }}" -f height="${{ inputs.height }}" \
+              -f resume_run="${{ github.run_id }}" -f chain_left="$left"
+            echo "dispatched next chunk"
+          else
+            echo "no chain (finished or cap reached)"
+          fi
 
       - name: Upload sim log
         if: always()
