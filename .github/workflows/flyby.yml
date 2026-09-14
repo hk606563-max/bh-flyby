@@ -19,8 +19,11 @@ on:
         description: "Seconds of sim time between frames"
         default: "40"
       budget_min:
-        description: "Minutes of sim time budget for this chunk"
+        description: "Minutes of sim budget for this chunk (rendering continues until total_min)"
         default: "270"
+      total_min:
+        description: "Hard stop for sim+render [min]; unrendered states are carried to the next chunk"
+        default: "318"
       resume_run:
         description: "Run id to resume from (blank = fresh start)"
         default: ""
@@ -100,13 +103,14 @@ jobs:
           END: ${{ inputs.end }}
           DT: ${{ inputs.dt }}
           BUDGET_MIN: ${{ inputs.budget_min }}
+          TOTAL_MIN: ${{ inputs.total_min }}
           W: ${{ inputs.width }}
           H: ${{ inputs.height }}
           CAM_CLOSE: ${{ inputs.cam_near }}
           CAM_WIDE: ${{ inputs.cam_wide }}
         run: |
           if [ -f earth.jpg ]; then export TEXTURE="$PWD/earth.jpg"; fi
-          if [ -d resume_in ]; then export RESUME="$(ls resume_in/*.ssf | head -1)"; fi
+          if [ -d resume_in ]; then export RESUME_DIR="$PWD/resume_in"; fi
           chmod +x run_chunk.sh && ./run_chunk.sh
 
       - name: Encode preview mp4
@@ -116,6 +120,7 @@ jobs:
           ls -la preview_m${{ inputs.mass }}.mp4 || true
 
       - name: Upload frames
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: frames-m${{ inputs.mass }}-${{ github.run_id }}
@@ -130,6 +135,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Upload resume state
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: resume-m${{ inputs.mass }}
@@ -148,7 +154,7 @@ jobs:
           if [ "$st" = "continue" ] && [ -d resume ] && [ "$left" -ge 0 ]; then
             gh workflow run flyby.yml -R "${{ github.repository }}" \
               -f mass="${{ inputs.mass }}" -f particles="${{ inputs.particles }}" -f by="${{ inputs.by }}" \
-              -f end="${{ inputs.end }}" -f dt="${{ inputs.dt }}" -f budget_min="${{ inputs.budget_min }}" \
+              -f end="${{ inputs.end }}" -f dt="${{ inputs.dt }}" -f budget_min="${{ inputs.budget_min }}" -f total_min="${{ inputs.total_min }}" \
               -f width="${{ inputs.width }}" -f height="${{ inputs.height }}" \
               -f resume_run="${{ github.run_id }}" -f chain_left="$left" -f cam_near="${{ inputs.cam_near }}" -f cam_wide="${{ inputs.cam_wide }}"
             echo "dispatched next chunk"
