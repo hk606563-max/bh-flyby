@@ -31,7 +31,7 @@ on:
       chain_left:
         description: "How many more chunks may be auto-launched after this one (0 = never chain)"
         default: "0"
-      cam_close:
+      cam_near:
         description: "Close camera distance [km] (negative y)"
         default: "-34000"
       cam_wide:
@@ -59,7 +59,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: opensph/build
-          key: opensph-build-${{ runner.os }}-${{ hashFiles('bhtool/**') }}-v1
+          key: opensph-build-${{ runner.os }}-${{ hashFiles('bhtool/**') }}-v2
 
       - name: Build OpenSPH + bhtool
         run: |
@@ -102,7 +102,7 @@ jobs:
           BUDGET_MIN: ${{ inputs.budget_min }}
           W: ${{ inputs.width }}
           H: ${{ inputs.height }}
-          CAM_CLOSE: ${{ inputs.cam_close }}
+          CAM_CLOSE: ${{ inputs.cam_near }}
           CAM_WIDE: ${{ inputs.cam_wide }}
         run: |
           if [ -f earth.jpg ]; then export TEXTURE="$PWD/earth.jpg"; fi
@@ -150,7 +150,7 @@ jobs:
               -f mass="${{ inputs.mass }}" -f particles="${{ inputs.particles }}" -f by="${{ inputs.by }}" \
               -f end="${{ inputs.end }}" -f dt="${{ inputs.dt }}" -f budget_min="${{ inputs.budget_min }}" \
               -f width="${{ inputs.width }}" -f height="${{ inputs.height }}" \
-              -f resume_run="${{ github.run_id }}" -f chain_left="$left" -f cam_close="${{ inputs.cam_close }}" -f cam_wide="${{ inputs.cam_wide }}"
+              -f resume_run="${{ github.run_id }}" -f chain_left="$left" -f cam_near="${{ inputs.cam_near }}" -f cam_wide="${{ inputs.cam_wide }}"
             echo "dispatched next chunk"
           else
             echo "no chain (finished or cap reached)"
