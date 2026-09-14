@@ -31,9 +31,12 @@ on:
       chain_left:
         description: "How many more chunks may be auto-launched after this one (0 = never chain)"
         default: "0"
-      cam_y:
-        description: "Camera distance [km] (negative y; closer = bigger Earth)"
-        default: "-70000"
+      cam_close:
+        description: "Close camera distance [km] (negative y)"
+        default: "-34000"
+      cam_wide:
+        description: "Wide camera distance [km] (negative y)"
+        default: "-90000"
 
 permissions:
   actions: write
@@ -99,7 +102,8 @@ jobs:
           BUDGET_MIN: ${{ inputs.budget_min }}
           W: ${{ inputs.width }}
           H: ${{ inputs.height }}
-          CAM_Y: ${{ inputs.cam_y }}
+          CAM_CLOSE: ${{ inputs.cam_close }}
+          CAM_WIDE: ${{ inputs.cam_wide }}
         run: |
           if [ -f earth.jpg ]; then export TEXTURE="$PWD/earth.jpg"; fi
           if [ -d resume_in ]; then export RESUME="$(ls resume_in/*.ssf | head -1)"; fi
@@ -108,7 +112,7 @@ jobs:
       - name: Encode preview mp4
         run: |
           ls frames | head -3
-          ffmpeg -v error -y -framerate 30 -pattern_type glob -i 'frames/*.png' -c:v libx264 -crf 18 -pix_fmt yuv420p preview_m${{ inputs.mass }}.mp4 || true
+          ffmpeg -v error -y -framerate 30 -pattern_type glob -i 'frames/close_*.png' -c:v libx264 -crf 18 -pix_fmt yuv420p preview_m${{ inputs.mass }}.mp4 || true
           ls -la preview_m${{ inputs.mass }}.mp4 || true
 
       - name: Upload frames
@@ -146,7 +150,7 @@ jobs:
               -f mass="${{ inputs.mass }}" -f particles="${{ inputs.particles }}" -f by="${{ inputs.by }}" \
               -f end="${{ inputs.end }}" -f dt="${{ inputs.dt }}" -f budget_min="${{ inputs.budget_min }}" \
               -f width="${{ inputs.width }}" -f height="${{ inputs.height }}" \
-              -f resume_run="${{ github.run_id }}" -f chain_left="$left" -f cam_y="${{ inputs.cam_y }}"
+              -f resume_run="${{ github.run_id }}" -f chain_left="$left" -f cam_close="${{ inputs.cam_close }}" -f cam_wide="${{ inputs.cam_wide }}"
             echo "dispatched next chunk"
           else
             echo "no chain (finished or cap reached)"
