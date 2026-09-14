@@ -31,6 +31,9 @@ on:
       chain_left:
         description: "How many more chunks may be auto-launched after this one (0 = never chain)"
         default: "0"
+      cam_y:
+        description: "Camera distance [km] (negative y; closer = bigger Earth)"
+        default: "-70000"
 
 permissions:
   actions: write
@@ -96,6 +99,7 @@ jobs:
           BUDGET_MIN: ${{ inputs.budget_min }}
           W: ${{ inputs.width }}
           H: ${{ inputs.height }}
+          CAM_Y: ${{ inputs.cam_y }}
         run: |
           if [ -f earth.jpg ]; then export TEXTURE="$PWD/earth.jpg"; fi
           if [ -d resume_in ]; then export RESUME="$(ls resume_in/*.ssf | head -1)"; fi
@@ -142,7 +146,7 @@ jobs:
               -f mass="${{ inputs.mass }}" -f particles="${{ inputs.particles }}" -f by="${{ inputs.by }}" \
               -f end="${{ inputs.end }}" -f dt="${{ inputs.dt }}" -f budget_min="${{ inputs.budget_min }}" \
               -f width="${{ inputs.width }}" -f height="${{ inputs.height }}" \
-              -f resume_run="${{ github.run_id }}" -f chain_left="$left"
+              -f resume_run="${{ github.run_id }}" -f chain_left="$left" -f cam_y="${{ inputs.cam_y }}"
             echo "dispatched next chunk"
           else
             echo "no chain (finished or cap reached)"
