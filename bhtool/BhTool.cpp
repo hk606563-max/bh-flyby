@@ -9,6 +9,8 @@
 #include "physics/Constants.h"
 #include "sph/Materials.h"
 #include "quantities/Attractor.h"
+#include "io/FileSystem.h"
+#include "io/Output.h"
 #include "run/Node.h"
 #include "run/jobs/GeometryJobs.h"
 #include "run/jobs/InitialConditionJobs.h"
@@ -289,8 +291,35 @@ int runRender(const Args& a) {
         }
     }
     camera->connect(render, "camera");
+    Path singlePath(String::fromAscii(single.c_str()));
+    Path tmpPath;
+    // Visual black hole: the physical attractor is tiny (~200 km, ABSORB radius), but on screen we want a
+    // black disc of --bh_r km (reference film: 0.3 Earth radii) -> rewrite the attractor in a temp copy.
+    const Float bhVisualRadius = a.num("bh_r", 0); // km, 0 = keep physical radius
+    if (!single.empty() && bhVisualRadius > 0) {
+        Storage storage;
+        Statistics stats;
+        BinaryInput input;
+        Outcome ok = input.load(singlePath, storage, stats);
+        if (!ok) {
+            throw std::runtime_error("cannot load " + single + ": " + ok.error().toAscii().cstr());
+        }
+        for (Attractor& at : storage.getAttractors()) {
+            at.radius = bhVisualRadius * 1.e3_f; // m
+            at.settings.set(AttractorSettingsId::ALBEDO, Float(a.num("bh_albedo", 0.0)));
+        }
+        BinaryOutput output(OutputFile(outDir / Path("_bhtmp_%d.ssf")));
+        Expected<Path> dumped = output.dump(storage, stats);
+        if (!dumped) {
+            throw std::runtime_error("cannot write temp state: " + std::string(dumped.error().toAscii().cstr()));
+        }
+        tmpPath = dumped.value();
+        singlePath = tmpPath;
+        std::cout << "bh visual radius " << bhVisualRadius << " km, " << storage.getAttractors().size()
+                  << " attractor(s)" << std::endl;
+    }
     if (!single.empty()) {
-        SharedPtr<JobNode> load = makeNode<LoadFileJob>(Path(String::fromAscii(single.c_str())));
+        SharedPtr<JobNode> load = makeNode<LoadFileJob>(singlePath);
         load->connect(render, "particles");
     }
 
@@ -298,6 +327,9 @@ int runRender(const Args& a) {
               << " -> " << outDir.string().toAscii().cstr() << std::endl;
     ProgressCallbacks cb;
     render->run(globals(), cb);
+    if (!tmpPath.empty()) {
+        FileSystem::removePath(tmpPath);
+    }
     if (wxTheApp) {
         wxTheApp->ProcessPendingEvents();
     }
